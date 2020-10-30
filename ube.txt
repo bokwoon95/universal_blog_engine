@@ -1,0 +1,94 @@
+ube_pages stores static pages. It matches URL to HTML.
+    HTML entries are gzipped to keep bloat down. The unzipping overhead is not an issue as most of the time the entries will only be unzipped once then stored in cache.
+    The URL->HTML mappings are also cached in memory (via ristretto)
+    if middleware finds a URL match in cache, it will serve the HTML directly without traversing further down the http.Handler chain
+    else if middleware finds a URL match in ube_pages, it will serve the HTML directly without traversing further down the http.Handler chain
+    else it will end up in the router
+    to 'static-fy' a dynamic page, simply add an entry to the ube_pages table for the middleware to pick up on it.
+    don't add the URL->HTML entry to the table directly, use the helper function which will populate both the table and the cache with the entry (so that you don't have to populate the cache yourself).
+    if you update a dynamic element on the page, simply call the helper function again to update the URL->HTML entry.
+    if you don't want to static-fy it anymore you can call a helper function to remove it from the table and cache.
+
+gzip middleware
+
+accounts system is actually really simple due to the single-user context.
+- No need for email resets: the user just logs on to the server and resets his password directly with the binary
+- No need for 2FA: I don't know how to implement 2FA in a single binary without paying for 3rd party services
+- No need for SSO/FB/Google login: They can be added via a plugin, but it requires an API key from the services. The user has to generate their own API key, I ain't gonna do it for them like whatever voodoo Auth0 is doing.
+
+ube_templates stores the available templates. Templates must come with a corresponding JSON Schema for defining what fields and types it expects. Based on the JSON schema, ube can generate a form asking users for what inputs needed to seed the template with data. The output is a JSON object that is then passed to the template.
+End users can wire up a template to a URL e.g. wire up templateA (downloaded from some github repo) to URL '/about-me'.
+By convention, a form will be generated at GET /settings/about-me where POST /settings/about-me will output a JSON data string that is used to seed the template at /about-me.
+These URL-to-template mappings will be stored in the ube_template_url table. The table also contains the JSON data used to seed the template. The output of the template + JSON data is automatically stored in the ube_pages table (and also in the cache). Whenever the user updates the JSON data column, the ube_pages entry is automatically regenerated (and the cache entry updated).
+Alternatively template makers can also supply a custom handlers for GET and POST for the generation of JSON data, in case the built in JSON Schema Form is not enough. I have no idea yet on how to make this work. How should template makers specify how to map their templates to the handlers, given that handlers are not something you can store in the database?
+    Honestly I think this feature should never/can never be implemented. Templates should not contain any handler data. All they expose are slots for a JSON object to fill in. Then instead of the awful "/config/about-me" hack, end users can specify the JSON data for -ALL- their templates in a single place e.g. "/settings/urls?template=about-me"
+    If the template maker desperately needs access to Go code? He can always code up a plugin and
+Would be nice if the user could use markdown in the forms as well.
+
+A component is some section of the page (a HTML snippet) that usually requires some data from the database. To prevent database calls + computation every read, the resultant HTML snippet should be cached for future reads to pick up on. When something changes in the underlying data, the cache should be updated manually.
+i.e. snippets are always read out of memory to avoid the database call + computation overhead on read events. The complexity is offloaded to the rarer write events which are responsible for updating the cache.
+    It's like an application layer materialized view, except sqlite doesn't support materialized views so we have to do it ourselves on the application layer.
+There is no table for storing components like with full pages because it's not necessary. All components should be kept in memory cache instead. If the application were to go down or restart, all cached items would be lost and they would have to be re-computed on next access.
+
+Plugins have to export a single object with the Plugin interface:
+// package ubeutil
+type Server struct {
+    DB     *sql.DB
+    DBType string
+    Policy *bluemonday.Policy
+    Config map[string]string // read from config.toml. Used for specifying API keys e.g. Facebook/Google login. Can also be manipulated in-memory.
+}
+type Plugin interface {
+    Init(srv *Server)
+    AddRoutes(srv *Server) func(r chi.Router)
+}
+The main package simply pulls in a list of plugins by importing the plugin packages. It then loops over each plugin, calling Init() followed by AddRoutes().
+
+Dashboard can be a plugin.
+SMTP mail notifications can be a plugin.
+Image uploads can be a plugin. It can be configured to read from the file system or from S3, and images can also be cached in memory.
+Comments can be a plugin. But how to integrate it with the blog post feature?
+Metrics dashboard is a plugin. But how to hook it up to each individual page so that it can monitor the stats for each page?
+
+in-built comment system with a novel security feature: it auto-shuts off if too many people are commenting at the same time. This is to secure it against spam bots flooding the database. It also shuts off if the number of comments is growing too large (taking up too much space).
+    comments can be publish-by-default or hold-for-approval-by-default
+    the usual techniques for spam prevention (e.g. honeypot fields) are also used.
+    A points system can be considered https://snook.ca/archives/other/effective_blog_comment_spam_blocker
+
+I need to spend some time prototyping what I want the make theme -> consume theme experience to be like. Hugo has very professionally designed themes of all shapes and sizes, I wonder how data is plugged in for each template.
+    Preferably I would like a site that aggregates all the themes and users can download themes straight from the website.
+
+I need a table for themes! I need to figure out how a theme, or a set of HTML/CSS/JS pages, can be organized into database tables. Installing a theme simply means storing those HTML/CSS/JS as strings in the database.
+Each theme will export different sets of page templates: About, Archive, Gallery, Contact, Talks, Showcase, Resume, etc. The list goes on. The user is able to map a template of their choosing to a URL of their choosing. This manifests as an entry in the ube_template_url table.
+From the settings page, they are able to preview each template as well as access the form that is used to seed the template data. This manifests as an entry in the ube_pages table (and is therefore precomputed and cached, very fast). Whenever the user updates something in the template data, or the template itself, the ube_pages entry is regenerated.
+
+Does static page data really need to be written into both the ube_pages table and the cache? Seems like purely static pages can live in ube_pages, while generated pages can live purely in the cache (and recomputed where necessary if it's not found in the cache).
+    I think my justification would be that you can disable the cache (/dev/null cache) and it would still work. Or if the items keep getting evicted from the cache due to not enough space, the precomputed pages would still work.
+
+Some URL redirecting rules are in order. For example, the blog plugin may expose the blog index at /blog/index. But people who are using ube as a blog may want that to be their home page and so can redirect "/" to "/blog/index".
+This is achieved by adding a "redirect_url" column to the ube_pages table. If the "redirect_url" for a ube_pages entry is not NULL, ube should redirect to that URL instead. This allows the end user to configure redirects without modifying the source code.
+- In fact two types of redirects should be allowed: URL redirects and content redirects. URL redirects involve redirecting to the new URL. Content redirects involve looking up the HTML page associated with the URL and rendering that instead i.e. the actual URL is untouched, the HTML is merely grafted onto the URL.
+- But exposing two pages with the same content is bad for SEO... I think it should be possible for users to redirect "/blog/index" to "/" too. So "/" will use "/blog/index"'s handler, and "/blog/index" will redirect to "/" which will then use "/blog/index"'s handler. This will involve dynamically modifying the handler associated with the router path.
+- No way around it, I will need to figure out how to modify the router dynamically at runtime.
+- This does not seem possible with Chi Router because I can't grab the handler associated with a path.
+PROBLEM: even if the user can configure the redirect, how to persist it to the database? Otherwise changes when the server restarts.
+Should reconfiguring the routes be based on restarting the server? So the user modifies a representation of the routes in the db, to reflect the changes the app is restarted and ube reads and serves the routes as they are
+I think what I really need is a 'pseudoroute': a route that the plugin maker can define on the router but is not actually reachable by website vistors. Instead the pseudoroute serves as a handle that the end user can use to wire up to their own routes.
+    so the plugin maker defines something like this r.Get(":/pages/apple-banana-cherry", myHandler)
+    /pages/apple-banana-cherry is registered in ube_pages, but a special flag will prevent it from being rendered directly
+    the user wants to link "/my-fruits" to the handler that the plugin maker exposed at ":/pages/apple-banana-cherry"
+    he adds an entry to ube_pages for "/my-fruits" which initially has a NULL content column and a assoc_url pointing at ":/pages/apple-banana-cherry"
+    When someone visits "/my-fruits", the router will lookup the content in the cache (fail), ube_pages (fail), but notices an assoc_url ":/pages/apple-banana-cherry" for the entry and so will invoke the handler associated with pseudoroute ":/pages/apple-banana-cherry" instead.
+        Remember, the pseudoroute ":/pages/apple-banana-cherry" is still not directly visitable by external vistors. They have to associate a route of their choosing to the associated URL.
+I think initially I shouldn't implement any of the complex pseudoroute nonsense. Just let plugin makers define their routes, and end users redirect their own routes to existing routes. Then we evaluate the user experience and work from there.
+
+The blog plugin should use a full text search table for storing posts i.e. sqlite has to pay special attention.
+
+sitemaps
+
+this can be used to teach programming to beginners: while other languages can only interface with stdout, programming with ube lets you get started with programming in a GUI environment right away. And it's runnable both locally (localhost) and online (ngrok), which lets beginners see the fruits of their labour immediately.
+    I can envision a situation where people write 'scripts' in ube instead and distribute the binary.
+
+For education purposes: there should be a way to launch a goroutine that opens a the web browser running at localhost:80. This will allow beginners to double click a binary that starts the server, and then opens a web browser at the localhost address.
+    If they want to terminate the application they just close the terminal window, very intuitive
+    The goroutine should keep polling for localhost:80 until it is reachable before actually opening the browser window.

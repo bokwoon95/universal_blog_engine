@@ -4,12 +4,10 @@ CREATE TABLE ube_users (
 );
 
 CREATE TABLE ube_pages (
-    page_id BIGINT NOT NULL PRIMARY KEY
-    ,ancestors JSON
-    ,headers JSON
-    ,body TEXT
-    ,scripts JSON
-    ,page_type TEXT
+    url TEXT NOT NULL PRIMARY KEY
+    ,content TEXT
+    ,redirect_to TEXT
+    ,disabled BOOLEAN
 );
 
 CREATE TABLE ube_posts (

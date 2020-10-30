@@ -1,0 +1,36 @@
+http://rachelbythebay.com/w/
+https://theblogtrottergirl.com/
+https://www.eyeswift.com/
+https://eli.thegreenplace.net/
+https://travisdowns.github.io/
+https://preshing.com/
+http://glennengstrand.info/blog/
+https://www.positech.co.uk/cliffsblog/
+https://drewdevault.com/
+https://wordsandbuttons.online/
+https://akoutmos.com/
+https://joshwcomeau.com
+https://susam.in/
+https://devblogs.microsoft.com/oldnewthing/
+https://stevelosh.com/blog/
+http://danluu.com/
+https://lemire.me/blog/
+https://tonsky.me/
+https://www.codevscolor.com/
+http://www.oilshell.org/blog/
+https://nfrechette.github.io/
+https://joshwcomeau.com/
+https://brandur.org/articles
+https://www.depesz.com/
+https://charity.wtf
+http://www.craigkerstiens.com/
+https://chrishardie.com/2016/12/joel-on-wordpress/
+https://www.dampfkraft.com/
+https://codahale.com/
+
+It's actually kind of refreshing to come across blogs where the index page displays posts all the way back to a few years, no pagination involved. E.g. rachelbythebay, drewdevault. It's a huge HTML list, but it loads in a jiffy because no bloated images (like eyeswift.com). You can immediately get a feel of how long the author has been blogging, without needing to keep clicking the dreaded 'next page' over and over (like eyeswift.com).
+    Pagination with 'jump to last page' is a decent feature, but it's still one extra action that will put off potential visitors. On the other hand scrolling a long list is free and effortless, so it encourages the user to go digging into your past posts even if they were many years ago.
+    I actually think this is the superior way of indexing your posts now (as long as you don't put bloated images like eyeswift.com)
+    In fact pagination might be a database limitation because Wordpress can't pull that many posts from MySQL without performance taking a huge hit.
+    Raymond Chen's blog uses pagination, but that's because he has a -huge- number of posts (600 pages, 4 posts per page)
+    Increasingly I think pagination should be a function of how often you post (and how many posts you have). Given a relatively sparse number of posts, please put everything on one page. Don't paginate for the sake of pagination, especially if the performance is okay (e.g. you are a static site).
